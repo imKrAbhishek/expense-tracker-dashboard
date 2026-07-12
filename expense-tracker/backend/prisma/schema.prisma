@@ -1,0 +1,106 @@
+// ==========================================
+// Expense Tracker Dashboard - Database Schema
+// ==========================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String        @id @default(uuid())
+  name         String
+  email        String        @unique
+  passwordHash String
+  currency     String        @default("USD")
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  transactions Transaction[]
+  categories   Category[]
+  budgets      Budget[]
+
+  @@map("users")
+}
+
+model Category {
+  id          String        @id @default(uuid())
+  name        String
+  icon        String?       // e.g. emoji or icon key for UI
+  color       String        @default("#6366f1") // for chart color mapping
+  isDefault   Boolean       @default(false)      // system-provided vs user-created
+  userId      String?       // null for global/default categories
+  user        User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  transactions Transaction[]
+  budgets      Budget[]
+  keywords     CategoryKeyword[]
+
+  createdAt   DateTime      @default(now())
+
+  @@unique([userId, name])
+  @@map("categories")
+}
+
+// Keywords used by the smart auto-categorization engine
+// e.g. "uber", "lyft" -> Transportation | "netflix", "spotify" -> Subscriptions
+model CategoryKeyword {
+  id         String   @id @default(uuid())
+  keyword    String
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  weight     Int      @default(1) // allows future ML-style scoring
+
+  @@unique([keyword, categoryId])
+  @@map("category_keywords")
+}
+
+model Transaction {
+  id           String    @id @default(uuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  categoryId   String?
+  category     Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  merchantName String    // raw text, e.g. "UBER *TRIP HELP.UBER.COM"
+  amount       Decimal   @db.Decimal(12, 2)
+  type         TransactionType @default(EXPENSE)
+  note         String?
+  isRecurring  Boolean   @default(false)  // flagged by the recurrence-detection job
+  date         DateTime
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([userId, date])
+  @@index([userId, categoryId])
+  @@map("transactions")
+}
+
+enum TransactionType {
+  EXPENSE
+  INCOME
+}
+
+model Budget {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  monthlyLimit Decimal @db.Decimal(12, 2)
+  month        Int     // 1-12
+  year         Int
+
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, categoryId, month, year])
+  @@map("budgets")
+}
